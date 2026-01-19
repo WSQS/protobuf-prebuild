@@ -82,7 +82,7 @@ jobs:
       - name: Configure CMake (MinGW)
         if: matrix.variant == 'mingw'
         run: |
-          cmake -B build -S . -G "MinGW Makefiles" ${{ matrix.cmake_flags }} -DCMAKE_INSTALL_PREFIX=install
+          cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }} -DCMAKE_INSTALL_PREFIX=install -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_MAKE_PROGRAM=ninja
 
       - name: Build
         run: |
