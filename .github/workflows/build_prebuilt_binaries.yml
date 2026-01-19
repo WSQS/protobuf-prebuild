@@ -1,0 +1,142 @@
+name: Build Prebuilt Binaries
+
+on:
+  # Trigger when a new release is created in the upstream protobuf repository
+  repository_dispatch:
+    types: [upstream-release]
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: 'Upstream release tag (e.g., v34.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # MSVC with static runtime (MT)
+          - variant: msvc-mt
+            cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS_RELEASE="/MT" -DCMAKE_C_FLAGS_RELEASE="/MT"
+            artifact_name: protoc-win64-msvc-mt.zip
+            setup_msvc: true
+          # MSVC with dynamic runtime (MD)
+          - variant: msvc-md
+            cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS_RELEASE="/MD" -DCMAKE_C_FLAGS_RELEASE="/MD"
+            artifact_name: protoc-win64-msvc-md.zip
+            setup_msvc: true
+          # MinGW
+          - variant: mingw
+            cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_C_FLAGS="-static-libgcc -static-libstdc++" -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++"
+            artifact_name: protoc-win64-mingw.zip
+            setup_msvc: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get upstream tag
+        id: get_tag
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            "tag=${{ inputs.upstream_tag }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          } elseif ('${{ github.event_name }}' -eq 'repository_dispatch') {
+            "tag=${{ github.event.client_payload.tag }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          }
+        shell: pwsh
+
+      - name: Fetch upstream tag
+        run: |
+          git remote add upstream https://github.com/protocolbuffers/protobuf.git
+          git fetch upstream --tags
+          git checkout ${{ steps.get_tag.outputs.tag }}
+
+      - name: Setup MSVC
+        if: matrix.setup_msvc
+        uses: ilammy/msvc-dev-cmd@v1.12.1
+
+      - name: Setup Ninja
+        run: |
+          choco install ninja
+          echo "C:\Program Files\Ninja" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup MinGW
+        if: matrix.variant == 'mingw'
+        run: |
+          choco install mingw -y
+          echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Configure CMake (MSVC)
+        if: matrix.setup_msvc
+        run: |
+          cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }}
+
+      - name: Configure CMake (MinGW)
+        if: matrix.variant == 'mingw'
+        run: |
+          cmake -B build -S . -G "MinGW Makefiles" ${{ matrix.cmake_flags }}
+
+      - name: Build
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Create package
+        run: |
+          cd build
+          cpack -G ZIP
+          cd ..
+          Get-ChildItem -Path build -Filter protobuf-*.zip | Rename-Item -NewName ${{ matrix.artifact_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
+          retention-days: 7
+
+  create-release:
+    needs: build-and-release
+    runs-on: windows-2022
+    steps:
+      - name: Get upstream tag
+        id: get_tag
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            "tag=${{ inputs.upstream_tag }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          } elseif ('${{ github.event_name }}' -eq 'repository_dispatch') {
+            "tag=${{ github.event.client_payload.tag }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+          }
+        shell: pwsh
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          name: Protobuf ${{ steps.get_tag.outputs.tag }} Prebuilt Binaries (Windows x64)
+          body: |
+            Prebuilt protobuf binaries for ${{ steps.get_tag.outputs.tag }} - Windows x64
+
+            This release includes multiple build variants:
+            - **MSVC-MT**: Built with Microsoft Visual C++ using static runtime library (/MT)
+            - **MSVC-MD**: Built with Microsoft Visual C++ using dynamic runtime library (/MD)
+            - **MinGW**: Built with MinGW-w64 GCC compiler
+
+            Built from upstream tag: ${{ steps.get_tag.outputs.tag }}
+          files: artifacts/*/*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
