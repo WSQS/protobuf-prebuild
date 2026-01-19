@@ -36,6 +36,11 @@ jobs:
             cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_C_FLAGS="-static-libgcc -static-libstdc++" -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++"
             artifact_name: protoc-win64-mingw.zip
             setup_msvc: false
+          # Android ARM64
+          - variant: android-arm64
+            cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -Dprotobuf_BUILD_PROTOC_BINARIES=OFF
+            artifact_name: protobuf-android-arm64.zip
+            setup_android: true
 
     steps:
       - name: Checkout code
@@ -74,6 +79,16 @@ jobs:
           choco install mingw -y
           echo "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Setup Android NDK
+        if: matrix.setup_android
+        run: |
+          $ndkVersion = "r26c"
+          $ndkUrl = "https://dl.google.com/android/repository/android-ndk-r26c-windows.zip"
+          Invoke-WebRequest -Uri $ndkUrl -OutFile ndk.zip
+          Expand-Archive -Path ndk.zip -DestinationPath .
+          echo "ANDROID_NDK=$env:GITHUB_WORKSPACE\android-ndk-r26c" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$env:GITHUB_WORKSPACE\android-ndk-r26c" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Configure CMake (MSVC)
         if: matrix.setup_msvc
         run: |
@@ -83,6 +98,11 @@ jobs:
         if: matrix.variant == 'mingw'
         run: |
           cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }} -DCMAKE_INSTALL_PREFIX=install -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_MAKE_PROGRAM=ninja
+
+      - name: Configure CMake (Android ARM64)
+        if: matrix.variant == 'android-arm64'
+        run: |
+          cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }} -DCMAKE_INSTALL_PREFIX=install -DCMAKE_TOOLCHAIN_FILE="$env:ANDROID_NDK\build\cmake\android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared
 
       - name: Build
         run: |
@@ -128,14 +148,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.get_tag.outputs.tag }}
-          name: Protobuf ${{ steps.get_tag.outputs.tag }} Prebuilt Binaries (Windows x64)
+          name: Protobuf ${{ steps.get_tag.outputs.tag }} Prebuilt Binaries
           body: |
-            Prebuilt protobuf binaries for ${{ steps.get_tag.outputs.tag }} - Windows x64
+            Prebuilt protobuf binaries for ${{ steps.get_tag.outputs.tag }}
 
             This release includes multiple build variants:
+
+            **Windows x64:**
             - **MSVC-MT**: Built with Microsoft Visual C++ using static runtime library (/MT)
             - **MSVC-MD**: Built with Microsoft Visual C++ using dynamic runtime library (/MD)
             - **MinGW**: Built with MinGW-w64 GCC compiler
+
+            **Android:**
+            - **ARM64**: Built with Android NDK r26c for arm64-v8a architecture
 
             Built from upstream tag: ${{ steps.get_tag.outputs.tag }}
           files: artifacts/*/*.zip
