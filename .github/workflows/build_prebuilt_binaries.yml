@@ -77,12 +77,12 @@ jobs:
       - name: Configure CMake (MSVC)
         if: matrix.setup_msvc
         run: |
-          cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }}
+          cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }} -DCPACK_PACKAGE_NAME=protobuf -DCPACK_PACKAGE_VERSION=${{ steps.get_tag.outputs.tag }} -DCPACK_GENERATOR=ZIP
 
       - name: Configure CMake (MinGW)
         if: matrix.variant == 'mingw'
         run: |
-          cmake -B build -S . -G "MinGW Makefiles" ${{ matrix.cmake_flags }}
+          cmake -B build -S . -G "MinGW Makefiles" ${{ matrix.cmake_flags }} -DCPACK_PACKAGE_NAME=protobuf -DCPACK_PACKAGE_VERSION=${{ steps.get_tag.outputs.tag }} -DCPACK_GENERATOR=ZIP
 
       - name: Build
         run: |
@@ -91,9 +91,15 @@ jobs:
       - name: Create package
         run: |
           cd build
-          cpack -G ZIP
+          cpack -G ZIP -C Release
           cd ..
-          Get-ChildItem -Path build -Filter protobuf-*.zip | Rename-Item -NewName ${{ matrix.artifact_name }}
+          if (Test-Path "build\protobuf-*.zip") {
+            Get-ChildItem -Path build -Filter protobuf-*.zip | Rename-Item -NewName ${{ matrix.artifact_name }}
+          } else {
+            Write-Error "CPack package not found"
+            Get-ChildItem -Path build
+            exit 1
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
