@@ -77,29 +77,26 @@ jobs:
       - name: Configure CMake (MSVC)
         if: matrix.setup_msvc
         run: |
-          cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }} -DCPACK_PACKAGE_NAME=protobuf -DCPACK_PACKAGE_VERSION=${{ steps.get_tag.outputs.tag }} -DCPACK_GENERATOR=ZIP
+          cmake -B build -S . -G Ninja ${{ matrix.cmake_flags }} -DCMAKE_INSTALL_PREFIX=install
 
       - name: Configure CMake (MinGW)
         if: matrix.variant == 'mingw'
         run: |
-          cmake -B build -S . -G "MinGW Makefiles" ${{ matrix.cmake_flags }} -DCPACK_PACKAGE_NAME=protobuf -DCPACK_PACKAGE_VERSION=${{ steps.get_tag.outputs.tag }} -DCPACK_GENERATOR=ZIP
+          cmake -B build -S . -G "MinGW Makefiles" ${{ matrix.cmake_flags }} -DCMAKE_INSTALL_PREFIX=install
 
       - name: Build
         run: |
           cmake --build build --config Release --parallel
 
+      - name: Install
+        run: |
+          cmake --install build --config Release --prefix install
+
       - name: Create package
         run: |
-          cd build
-          cpack -G ZIP -C Release
-          cd ..
-          if (Test-Path "build\protobuf-*.zip") {
-            Get-ChildItem -Path build -Filter protobuf-*.zip | Rename-Item -NewName ${{ matrix.artifact_name }}
-          } else {
-            Write-Error "CPack package not found"
-            Get-ChildItem -Path build
-            exit 1
-          }
+          $version = "${{ steps.get_tag.outputs.tag }}" -replace '^v', ''
+          Compress-Archive -Path install\* -DestinationPath ${{ matrix.artifact_name }} -Force
+          Write-Host "Created package: ${{ matrix.artifact_name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
