@@ -144,6 +144,44 @@ jobs:
         with:
           path: artifacts
 
+      - name: Create combined package
+        run: |
+          $version = "${{ steps.get_tag.outputs.tag }}" -replace '^v', ''
+          $combinedDir = "combined"
+          New-Item -ItemType Directory -Path $combinedDir -Force
+          
+          foreach ($variantDir in Get-ChildItem -Path artifacts -Directory) {
+            $variantName = $variantDir.Name
+            $prefix = ""
+            
+            switch ($variantName) {
+              "protoc-win64-msvc-mt.zip" { $prefix = "msvc-mt-" }
+              "protoc-win64-msvc-md.zip" { $prefix = "msvc-md-" }
+              "protoc-win64-mingw.zip" { $prefix = "mingw-" }
+              "protobuf-android-arm64.zip" { $prefix = "android-arm64-" }
+              default { $prefix = "$variantName-" }
+            }
+            
+            Expand-Archive -Path $variantDir.FullName -DestinationPath temp_extract -Force
+            
+            foreach ($file in Get-ChildItem -Path temp_extract -Recurse -File) {
+              $newName = $prefix + $file.Name
+              $relativePath = $file.FullName.Substring((Get-Item temp_extract).FullName.Length)
+              $targetDir = $combinedDir + $relativePath.Substring(0, $relativePath.LastIndexOf('\'))
+              if (-not (Test-Path $targetDir)) {
+                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+              }
+              Copy-Item -Path $file.FullName -Destination (Join-Path $targetDir $newName)
+            }
+            
+            Remove-Item -Path temp_extract -Recurse -Force
+          }
+          
+          $combinedPackage = "protobuf-${version}-all-variants.zip"
+          Compress-Archive -Path $combinedDir\* -DestinationPath $combinedPackage -Force
+          Write-Host "Created combined package: $combinedPackage"
+        shell: pwsh
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -162,8 +200,13 @@ jobs:
             **Android:**
             - **ARM64**: Built with Android NDK r26c for arm64-v8a architecture
 
+            **Combined Package:**
+            - **All Variants**: Contains all build variants in a single zip package with prefixes (msvc-mt-, msvc-md-, mingw-, android-arm64-)
+
             Built from upstream tag: ${{ steps.get_tag.outputs.tag }}
-          files: artifacts/*/*.zip
+          files: |
+            artifacts/*/*.zip
+            *.zip
           draft: false
           prerelease: false
         env:
