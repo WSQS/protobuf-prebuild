@@ -162,19 +162,23 @@ jobs:
               default { $prefix = "$variantName-" }
             }
             
-            Expand-Archive -Path $variantDir.FullName -DestinationPath temp_extract -Force
-            
-            foreach ($file in Get-ChildItem -Path temp_extract -Recurse -File) {
-              $newName = $prefix + $file.Name
-              $relativePath = $file.FullName.Substring((Get-Item temp_extract).FullName.Length)
-              $targetDir = $combinedDir + $relativePath.Substring(0, $relativePath.LastIndexOf('\'))
-              if (-not (Test-Path $targetDir)) {
-                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            # Get the actual zip file inside the variant directory
+            $zipFile = Get-ChildItem -Path $variantDir.FullName -Filter "*.zip" | Select-Object -First 1
+            if ($zipFile) {
+              Expand-Archive -Path $zipFile.FullName -DestinationPath temp_extract -Force
+              
+              foreach ($file in Get-ChildItem -Path temp_extract -Recurse -File) {
+                $newName = $prefix + $file.Name
+                $relativePath = $file.FullName.Substring((Get-Item temp_extract).FullName.Length)
+                $targetDir = $combinedDir + $relativePath.Substring(0, $relativePath.LastIndexOf('\'))
+                if (-not (Test-Path $targetDir)) {
+                  New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+                }
+                Copy-Item -Path $file.FullName -Destination (Join-Path $targetDir $newName)
               }
-              Copy-Item -Path $file.FullName -Destination (Join-Path $targetDir $newName)
+              
+              Remove-Item -Path temp_extract -Recurse -Force
             }
-            
-            Remove-Item -Path temp_extract -Recurse -Force
           }
           
           $combinedPackage = "protobuf-${version}-all-variants.zip"
