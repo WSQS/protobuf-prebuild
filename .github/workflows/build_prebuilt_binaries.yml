@@ -152,32 +152,22 @@ jobs:
           
           foreach ($variantDir in Get-ChildItem -Path artifacts -Directory) {
             $variantName = $variantDir.Name
-            $prefix = ""
+            $subdirName = ""
             
             switch ($variantName) {
-              "protobuf-win64-msvc-mt.zip" { $prefix = "msvc-mt-" }
-              "protobuf-win64-msvc-md.zip" { $prefix = "msvc-md-" }
-              "protobuf-win64-mingw.zip" { $prefix = "mingw-" }
-              "protobuf-android-arm64.zip" { $prefix = "android-arm64-" }
-              default { $prefix = "$variantName-" }
+              "protobuf-win64-msvc-mt.zip" { $subdirName = "msvc-mt" }
+              "protobuf-win64-msvc-md.zip" { $subdirName = "msvc-md" }
+              "protobuf-win64-mingw.zip" { $subdirName = "mingw" }
+              "protobuf-android-arm64.zip" { $subdirName = "android-arm64" }
+              default { $subdirName = $variantName -replace '\.zip$', '' }
             }
             
             # Get the actual zip file inside the variant directory
             $zipFile = Get-ChildItem -Path $variantDir.FullName -Filter "*.zip" | Select-Object -First 1
             if ($zipFile) {
-              Expand-Archive -Path $zipFile.FullName -DestinationPath temp_extract -Force
-              
-              foreach ($file in Get-ChildItem -Path temp_extract -Recurse -File) {
-                $newName = $prefix + $file.Name
-                $relativePath = $file.FullName.Substring((Get-Item temp_extract).FullName.Length)
-                $targetDir = $combinedDir + $relativePath.Substring(0, $relativePath.LastIndexOf('\'))
-                if (-not (Test-Path $targetDir)) {
-                  New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-                }
-                Copy-Item -Path $file.FullName -Destination (Join-Path $targetDir $newName)
-              }
-              
-              Remove-Item -Path temp_extract -Recurse -Force
+              $targetDir = Join-Path $combinedDir $subdirName
+              Expand-Archive -Path $zipFile.FullName -DestinationPath $targetDir -Force
+              Write-Host "Extracted $variantName to $targetDir"
             }
           }
           
@@ -205,7 +195,7 @@ jobs:
             - **ARM64**: Built with Android NDK r26c for arm64-v8a architecture
 
             **Combined Package:**
-            - **All Variants**: Contains all build variants in a single zip package with prefixes (msvc-mt-, msvc-md-, mingw-, android-arm64-)
+            - **All Variants**: Contains all build variants in a single zip package, each in its own subdirectory (msvc-mt/, msvc-md/, mingw/, android-arm64/)
 
             Built from upstream tag: ${{ steps.get_tag.outputs.tag }}
           files: |
