@@ -24,17 +24,17 @@ jobs:
           # MSVC with static runtime (MT)
           - variant: msvc-mt
             cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS_RELEASE="/MT" -DCMAKE_C_FLAGS_RELEASE="/MT"
-            artifact_name: protoc-win64-msvc-mt.zip
+            artifact_name: protobuf-win64-msvc-mt.zip
             setup_msvc: true
           # MSVC with dynamic runtime (MD)
           - variant: msvc-md
             cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS_RELEASE="/MD" -DCMAKE_C_FLAGS_RELEASE="/MD"
-            artifact_name: protoc-win64-msvc-md.zip
+            artifact_name: protobuf-win64-msvc-md.zip
             setup_msvc: true
           # MinGW
           - variant: mingw
             cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_C_FLAGS="-static-libgcc -static-libstdc++" -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++"
-            artifact_name: protoc-win64-mingw.zip
+            artifact_name: protobuf-win64-mingw.zip
             setup_msvc: false
           # Android ARM64
           - variant: android-arm64
@@ -155,9 +155,9 @@ jobs:
             $prefix = ""
             
             switch ($variantName) {
-              "protoc-win64-msvc-mt.zip" { $prefix = "msvc-mt-" }
-              "protoc-win64-msvc-md.zip" { $prefix = "msvc-md-" }
-              "protoc-win64-mingw.zip" { $prefix = "mingw-" }
+              "protobuf-win64-msvc-mt.zip" { $prefix = "msvc-mt-" }
+              "protobuf-win64-msvc-md.zip" { $prefix = "msvc-md-" }
+              "protobuf-win64-mingw.zip" { $prefix = "mingw-" }
               "protobuf-android-arm64.zip" { $prefix = "android-arm64-" }
               default { $prefix = "$variantName-" }
             }
