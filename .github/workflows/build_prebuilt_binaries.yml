@@ -31,6 +31,16 @@ jobs:
             cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS_RELEASE="/MD" -DCMAKE_C_FLAGS_RELEASE="/MD"
             artifact_name: protobuf-win64-msvc-md.zip
             setup_msvc: true
+          # MSVC with static runtime debug (MTd)
+          - variant: msvc-mtd
+            cmake_flags: -DCMAKE_BUILD_TYPE=Debug -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS_DEBUG="/MTd" -DCMAKE_C_FLAGS_DEBUG="/MTd"
+            artifact_name: protobuf-win64-msvc-mtd.zip
+            setup_msvc: true
+          # MSVC with dynamic runtime debug (MDd)
+          - variant: msvc-mdd
+            cmake_flags: -DCMAKE_BUILD_TYPE=Debug -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS_DEBUG="/MDd" -DCMAKE_C_FLAGS_DEBUG="/MDd"
+            artifact_name: protobuf-win64-msvc-mdd.zip
+            setup_msvc: true
           # MinGW
           - variant: mingw
             cmake_flags: -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -Dprotobuf_WITH_ZLIB=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_C_FLAGS="-static-libgcc -static-libstdc++" -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++"
@@ -106,11 +116,13 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build build --config Release --parallel
+          $config = if ('${{ matrix.variant }}' -match 'mtd|mdd') { 'Debug' } else { 'Release' }
+          cmake --build build --config $config --parallel
 
       - name: Install
         run: |
-          cmake --install build --config Release --prefix install
+          $config = if ('${{ matrix.variant }}' -match 'mtd|mdd') { 'Debug' } else { 'Release' }
+          cmake --install build --config $config --prefix install
 
       - name: Create package
         run: |
@@ -157,6 +169,8 @@ jobs:
             switch ($variantName) {
               "protobuf-win64-msvc-mt.zip" { $subdirName = "msvc-mt" }
               "protobuf-win64-msvc-md.zip" { $subdirName = "msvc-md" }
+              "protobuf-win64-msvc-mtd.zip" { $subdirName = "msvc-mtd" }
+              "protobuf-win64-msvc-mdd.zip" { $subdirName = "msvc-mdd" }
               "protobuf-win64-mingw.zip" { $subdirName = "mingw" }
               "protobuf-android-arm64.zip" { $subdirName = "android-arm64" }
               default { $subdirName = $variantName -replace '\.zip$', '' }
@@ -187,15 +201,17 @@ jobs:
             This release includes multiple build variants:
 
             **Windows x64:**
-            - **MSVC-MT**: Built with Microsoft Visual C++ using static runtime library (/MT)
-            - **MSVC-MD**: Built with Microsoft Visual C++ using dynamic runtime library (/MD)
+            - **MSVC-MT**: Built with Microsoft Visual C++ using static runtime library (/MT) - Release
+            - **MSVC-MD**: Built with Microsoft Visual C++ using dynamic runtime library (/MD) - Release
+            - **MSVC-MTd**: Built with Microsoft Visual C++ using static runtime library (/MTd) - Debug
+            - **MSVC-MDd**: Built with Microsoft Visual C++ using dynamic runtime library (/MDd) - Debug
             - **MinGW**: Built with MinGW-w64 GCC compiler
 
             **Android:**
             - **ARM64**: Built with Android NDK r26c for arm64-v8a architecture
 
             **Combined Package:**
-            - **All Variants**: Contains all build variants in a single zip package, each in its own subdirectory (msvc-mt/, msvc-md/, mingw/, android-arm64/)
+            - **All Variants**: Contains all build variants in a single zip package, each in its own subdirectory (msvc-mt/, msvc-md/, msvc-mtd/, msvc-mdd/, mingw/, android-arm64/)
 
             Built from upstream tag: ${{ steps.get_tag.outputs.tag }}
           files: |
