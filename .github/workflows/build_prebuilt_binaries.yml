@@ -124,11 +124,205 @@ jobs:
           $config = if ('${{ matrix.variant }}' -match 'mtd|mdd') { 'Debug' } else { 'Release' }
           cmake --install build --config $config --prefix install
 
+      - name: Generate build manifest
+        run: |
+          # Determine configuration
+          $config = if ('${{ matrix.variant }}' -match 'mtd|mdd') { 'Debug' } else { 'Release' }
+          $variant = "${{ matrix.variant }}"
+          
+          # Determine architecture (FIX #1: Android should be arm64-v8a, not x64)
+          $arch = switch ($variant) {
+            "android-arm64" { "arm64-v8a" }
+            default { "x64" }
+          }
+          
+          # Get git commit (FIX #2: trim whitespace)
+          $gitCommit = (git rev-parse HEAD).Trim()
+          
+          # Get timestamp in UTC ISO format
+          $timestampUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          
+          # Get runner info (FIX #3: use correct fields, add runnerName)
+          $runnerInfo = @{
+            os = $env:RUNNER_OS
+            runnerName = $env:RUNNER_NAME
+          }
+          if ($env:ImageVersion) {
+            $runnerInfo.imageVersion = $env:ImageVersion
+          }
+          
+          # Initialize toolchain object
+          $toolchain = @{}
+          
+          # Get CMake version (FIX #4: trim)
+          $cmakeVersion = (cmake --version 2>&1 | Select-Object -First 1).Trim()
+          $toolchain['cmake'] = $cmakeVersion
+          
+          # Get Ninja version if available (FIX #5: trim)
+          try {
+            $ninjaVersion = (ninja --version 2>&1).Trim()
+            if ($LASTEXITCODE -eq 0) {
+              $toolchain['ninja'] = $ninjaVersion
+            }
+          } catch {}
+          
+          # Read CMakeCache.txt for compiler/generator info (FIX #6: evidence from actual build)
+          $cachePath = "build\CMakeCache.txt"
+          if (Test-Path $cachePath) {
+            $cacheContent = Get-Content $cachePath
+            function Get-CMakeCache {
+              param($key)
+              $line = $cacheContent | Where-Object { $_ -match "^$key:.*=" } | Select-Object -First 1
+              if ($line) {
+                return ($line -replace "^[^=]+=", "").Trim()
+              }
+              return $null
+            }
+            $generator = Get-CMakeCache "CMAKE_GENERATOR"
+            if ($generator) { $toolchain['cmake_generator'] = $generator }
+            $cxxCompiler = Get-CMakeCache "CMAKE_CXX_COMPILER"
+            if ($cxxCompiler) { $toolchain['cxx_compiler'] = $cxxCompiler }
+            $cCompiler = Get-CMakeCache "CMAKE_C_COMPILER"
+            if ($cCompiler) { $toolchain['c_compiler'] = $cCompiler }
+            $cxxCompilerVersion = Get-CMakeCache "CMAKE_CXX_COMPILER_VERSION"
+            if ($cxxCompilerVersion) { $toolchain['cxx_compiler_version'] = $cxxCompilerVersion }
+          }
+          
+          # MSVC specific
+          if ('${{ matrix.setup_msvc }}' -eq 'true') {
+            # Get MSVC CL version (FIX #7: correct regex, no prefix duplication)
+            $clVersion = $null
+            try {
+              $clOut = cl 2>&1 | Out-String
+              $m = [regex]::Match($clOut, "Compiler Version ([0-9]+\.[0-9]+\.[0-9]+)")
+              if ($m.Success) {
+                $clVersion = $m.Groups[1].Value
+              }
+            } catch {}
+            
+            # Hard validation for MSVC variants (FIX #8: fail if cl version not detected)
+            if ([string]::IsNullOrEmpty($clVersion)) {
+              throw "Failed to detect MSVC cl version. Ensure msvc-dev-cmd ran and cl is on PATH."
+            }
+            $toolchain['msvc_cl_version'] = $clVersion
+            
+            # Get Visual Studio installation info using vswhere (FIX #9: handle array correctly, use -products *)
+            try {
+              $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+              if (Test-Path $vswhere) {
+                $vsInfo = (& $vswhere -latest -products * -format json | ConvertFrom-Json | Select-Object -First 1)
+                if ($vsInfo) {
+                  $toolchain['vs_installationVersion'] = $vsInfo.installationVersion
+                  $toolchain['vs_productId'] = $vsInfo.productId
+                }
+              }
+            } catch {}
+            
+            # Add VC tools install directory (FIX #10: helps identify toolset version)
+            if ($env:VCToolsInstallDir) {
+              $toolchain['vc_tools_install_dir'] = $env:VCToolsInstallDir
+            }
+            
+            # Get Windows SDK version
+            $windowsSdk = $env:WindowsSDKVersion
+            if ($windowsSdk) {
+              $windowsSdk = $windowsSdk.TrimEnd('\')
+            }
+            $toolchain['windows_sdk'] = $windowsSdk
+          }
+          
+          # MinGW specific
+          if ($variant -eq 'mingw') {
+            try {
+              $gccVersion = (gcc --version 2>&1 | Select-Object -First 1).Trim()
+              if ($LASTEXITCODE -eq 0) {
+                $toolchain['mingw_gcc_version'] = $gccVersion
+              }
+            } catch {}
+          }
+          
+          # Android specific (FIX #11: hardcode version, add path)
+          if ('${{ matrix.setup_android }}' -eq 'true') {
+            $toolchain['android_ndk_version'] = "r26c"
+            if ($env:ANDROID_NDK) {
+              $toolchain['android_ndk_path'] = $env:ANDROID_NDK
+            }
+            
+            # Get clang version from NDK
+            try {
+              $clangPath = Join-Path $env:ANDROID_NDK "toolchains\llvm\prebuilt\windows-x86_64\bin\clang.exe"
+              if (Test-Path $clangPath) {
+                $clangVersion = (& $clangPath --version 2>&1 | Select-Object -First 1).Trim()
+                if ($LASTEXITCODE -eq 0) {
+                  $toolchain['clang_version'] = $clangVersion
+                }
+              }
+            } catch {}
+          }
+          
+          # Determine MSVC runtime
+          $msvcRuntime = $null
+          if ('${{ matrix.setup_msvc }}' -eq 'true') {
+            switch ($variant) {
+              'msvc-mt' { $msvcRuntime = 'MT' }
+              'msvc-md' { $msvcRuntime = 'MD' }
+              'msvc-mtd' { $msvcRuntime = 'MTd' }
+              'msvc-mdd' { $msvcRuntime = 'MDd' }
+            }
+          }
+          
+          # Build manifest object
+          $manifest = @{
+            library = @{
+              name = "protobuf"
+              upstream_tag = "${{ steps.get_tag.outputs.tag }}"
+              git_commit = $gitCommit
+            }
+            build = @{
+              variant = $variant
+              configuration = $config
+              arch = $arch
+              timestamp_utc = $timestampUtc
+              runner = $runnerInfo
+            }
+            toolchain = $toolchain
+            abi = @{}
+          }
+          
+          # Add ABI info for MSVC
+          if ($msvcRuntime) {
+            $manifest['abi']['msvc_runtime'] = $msvcRuntime
+          }
+          
+          # Add C++ standard (extracted from cmake_flags)
+          if ('${{ matrix.cmake_flags }}' -match '-DCMAKE_CXX_STANDARD=(\d+)') {
+            $manifest['abi']['cxx_standard'] = $matches[1]
+          } else {
+            $manifest['abi']['cxx_standard'] = "17"
+          }
+          
+          # Write manifest to JSON file
+          $manifestJson = $manifest | ConvertTo-Json -Depth 10
+          New-Item -ItemType Directory -Path "install" -Force | Out-Null
+          $manifestJson | Out-File -FilePath "install\build-manifest.json" -Encoding utf8
+          
+          Write-Host "Generated build-manifest.json:"
+          Write-Host $manifestJson
+        shell: pwsh
+
       - name: Create package
         run: |
           $version = "${{ steps.get_tag.outputs.tag }}" -replace '^v', ''
           Compress-Archive -Path install\* -DestinationPath ${{ matrix.artifact_name }} -Force
           Write-Host "Created package: ${{ matrix.artifact_name }}"
+
+      - name: Upload build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-manifest-${{ matrix.variant }}
+          path: install/build-manifest.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
