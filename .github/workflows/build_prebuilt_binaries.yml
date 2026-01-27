@@ -172,7 +172,7 @@ jobs:
             $cacheContent = Get-Content $cachePath
             function Get-CMakeCache {
               param($key)
-              $line = $cacheContent | Where-Object { $_ -match "^$key:.*=" } | Select-Object -First 1
+              $line = $cacheContent | Where-Object { $_ -match "^${key}:.*=" } | Select-Object -First 1
               if ($line) {
                 return ($line -replace "^[^=]+=", "").Trim()
               }
